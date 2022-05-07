@@ -14,9 +14,12 @@ Make a streaming json parser, that can parse arbitrarily large json files.
 - Store numbers as floats
 - See how to support unicode characters in string ?? (maybe use a library)
 
-- lots of unit tests
+- Setup proper project using esy, lots of unit tests
 
 - Single character tokens will not be interrupted (`{`, `}`, `[`, `]`, `:`, `,`)
 - Multi character tokens will be interrupted need to partially lexed (`true`, `false`, numbers (`float`), strings (`"`), whitespace)
 
-- A ridiculous idea: Make a smart contract / global contract in LIGO that will parse JSON
+- Good error messages ?? (maybe :D)
+
+- ridiculous idea: Write the partial parsing part in Coq later 
+- ridiculous idea: Make a smart contract / global contract in LIGO that will parse JSON
