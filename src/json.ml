@@ -44,9 +44,57 @@ type pre_parse_tokens =
   | R_CURLY (* } *)
   | COMMA
   | COLON
-  | WHITE_SPACE of char (* \n, \t, \r, \s *)
+  | TRUE  of string
+  | FALSE of string
+  | NULL  of string
+  | WHITE_SPACE of string 
   | STRING      of string
-  | NUMBER      of float
+  | NUMBER      of string
+
+(* type 'a status = Complete of 'a | Partial of 'a *)
+
+(* type pre_parser_state = pre_parse_tokens status *)
+
+let merge_pre_parser_tokens p q =
+  match p, q with
+    STRING p, CHAR 't'           -> STRING (p ^ (String.make 1 't'))
+  | STRING p, CHAR 'f'           -> STRING (p ^ (String.make 1 'f'))
+  | STRING p, CHAR 'n'           -> STRING (p ^ (String.make 1 'n'))
+  | STRING p, CHAR q             -> STRING (p ^ (String.make 1 q))
+  | NUMBER p, DIGIT q            -> NUMBER (p ^ (String.make 1 q))
+  | WHITE_SPACE p, WHITE_SPACE q -> WHITE_SPACE (p ^ (String.make 1 q))
+  | STRING p, DOUBLE_QUOTE       -> STRING p
+  | _       , DOUBLE_QUOTE       -> STRING ""
+  | _         , CHAR 't' -> TRUE "t"
+  | TRUE "t"  , CHAR 'r' -> TRUE "tr"
+  | TRUE "tr" , CHAR 'u' -> TRUE "tru"
+  | TRUE "tru", CHAR 'e' -> TRUE "true"
+  | _           , CHAR 'f' -> FALSE "f"
+  | FALSE "f"   , CHAR 'a' -> FALSE "fa"
+  | FALSE "fa"  , CHAR 'l' -> FALSE "fal"
+  | FALSE "fal" , CHAR 's' -> FALSE "fals"
+  | FALSE "fals", CHAR 'e' -> FALSE "false"
+  | _         , CHAR 'n' -> NULL "n"
+  | NULL "n"  , CHAR 'u' -> NULL "nu"
+  | NULL "nu" , CHAR 'l' -> NULL "nul"
+  | NULL "nul", CHAR 'l' -> NULL "null"
+  | _ -> failwith "invalid: cannot merge " (* TODO: pretty printer for token & pre_parser_token*)
+
+
+let pre_parse : lexer_state -> pre_parse_tokens -> pre_parse_tokens =
+  fun (_, token) p ->
+    match token with
+      L_BRACE -> L_BRACE
+    | R_BRACE -> R_BRACE
+    | L_CURLY -> L_CURLY
+    | R_CURLY -> R_CURLY
+    | COMMA   -> COMMA
+    | COLON   -> COLON
+    | WHITE_SPACE _ 
+    | DIGIT _
+    | DOUBLE_QUOTE 
+    | CHAR _  -> merge_pre_parser_tokens p token 
+
 
 (*
 Idea: Make a streaming json parser, that can parse arbitrarily large json files.
@@ -75,6 +123,6 @@ Idea: Make a streaming json parser, that can parse arbitrarily large json files.
 - Good error messages ?? (maybe :D)
 
 - ridiculous idea: Write the partial parsing part in Coq later 
-- ridiculous idea: Make a smart contract / global contract in LIGO that will parse JSON
+- ridiculous idea: Make a smart contract / global constant in LIGO that will parse JSON string
 
 *)
