@@ -70,7 +70,7 @@ module PreParser = struct
   | NULL  of string
   | WHITE_SPACE of string 
   | STRING      of string
-  | NUMBER      of string
+  | NUMBER      of string (* TODO: parse floats, exponents *)
 
   type status = Complete of token | Partial of token 
   type state = Single of status | Double of token * status
@@ -161,34 +161,93 @@ module PreParser = struct
 
 end
 
+module Parser = struct
+  open PreParser
+  type t =
+      Null
+    | True
+    | False
+    | String of string
+    | Number of float
+    | Object of (string * t) list
+    | Array of t list
+
+  type state = Complete of t | Partial of (PreParser.token -> state)
+
+  (* Convert this to CPS *)
+  let rec parse_object t =
+    match t with
+      STRING s -> Partial (
+        fun t ->
+          match t with
+            COLON -> Partial (
+              fun t ->
+                match parse_token t with
+                  Complete t' -> Partial (
+                    fun t ->
+                      match t with
+                      | COMMA -> Partial (
+                        fun t ->
+                          match parse_object t with
+                            Complete (Object kvs) ->
+                              Complete (Object ((s,t')::kvs))
+                          | Partial p -> Partial p
+                          | _ -> failwith "todo 1" (* TODO: better error messages *)
+                      )
+                      | R_CURLY -> Complete (Object [s,t'])
+                      | _ -> failwith "todo 2" (* TODO: better error messages *)
+                  )
+                | _ -> failwith "todo 3" (* TODO: better error messages *)
+            )
+          | _ -> failwith "invalid object 1" (* TODO: better error messages *)
+      )
+    | _ -> failwith "invalid object 2" (* TODO: better error messages *)
+
+  and parse_token p =
+    match p with
+      TRUE "true"   -> Complete True
+    | FALSE "false" -> Complete False
+    | NULL "null"   -> Complete Null
+    | STRING s -> Complete (String s)
+    | NUMBER n -> Complete (Number (float_of_string n))
+    | L_CURLY -> Partial parse_object
+    | L_BRACE -> failwith "not implemented"
+    | _ -> failwith "invalid json"
+
+  let step f t =
+    match t with
+      PreParser.WHITE_SPACE _ -> f
+    | _ -> (
+      match f t with
+        Complete t -> (fun _ -> Complete t)
+      | Partial f -> f
+    )
+end
+
 module Driver = struct
   let drive json =
     let buf = Buffer.of_seq @@ String.to_seq json in
     let len = Buffer.length buf in
-    let rec aux len (l,p,xs) =
+    let rec aux len (l,p,parse_token,xs) =
       if len = 0 
-      then
-        let xs = 
-        (match p with
-          PreParser.Complete t -> t::xs
-        | Partial _            -> failwith "pre-parsing failure") in
-        (l,p,List.rev xs)
+      then (l,p,List.rev xs)
       else aux (len - 1) (
         let l = Lexer.lex buf l in
-        let p, xs = 
+        let p, parse_token, xs = 
           match PreParser.parse l p with 
-            Single (Complete t as s) -> s, t::xs
-          | Single (Partial p  as s) -> s, xs
-          | Double (p,q)             -> q, p::xs
+            Single (Complete t as s) -> s, Parser.step parse_token t, t::xs
+          | Single (Partial p  as s) -> s, parse_token, xs
+          | Double (p,(Partial _ as s))  -> s, Parser.step parse_token p, p::xs
+          | Double (p,(Complete t as s)) -> s, Parser.step (Parser.step parse_token p) t, t::p::xs
         in
-        (l,p,xs))
+        (l,p,parse_token,xs))
     in
     
-    let _,p,tokens = aux len (Lexer.initial_state, PreParser.initial_state, []) in
+    let _,p,tokens = aux len (Lexer.initial_state, PreParser.initial_state, Parser.parse_token, []) in
     List.iter (fun t -> Format.printf "%a" PreParser.pp t) tokens
 end
 
-let json = "{ \"foo\": \"string\", \"bar\": 1, \"baz\": true }" ;;
+let json = "{ \"foo\": \"string\", \"bar\": 1, \"baz\": true, \"tutu\": null }" ;;
 Driver.drive json
 
 (*
@@ -216,6 +275,8 @@ Idea: Make a streaming json parser, that can parse arbitrarily large json files.
 - Don't create copies of data while reading (maybe keep track of locations (start & end) from file)
 
 - Good error messages ?? (maybe :D)
+
+- benchmark with other libraries for json file > 1GB
 
 - ridiculous idea: Write the partial parsing part in Coq later 
 - ridiculous idea: Make a smart contract / global constant in LIGO that will parse JSON string
