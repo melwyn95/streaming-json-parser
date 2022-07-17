@@ -195,6 +195,8 @@ module Parser = struct
   | Object_key of string
   | Object_key_colon of string
   | Object_row of string * t 
+  | Array_start
+  | Array_element of t
 
   type stack = state Stack.t
 
@@ -207,7 +209,9 @@ module Parser = struct
       | Object_start -> Format.fprintf ppf "Object_start\n" 
       | Object_key k -> Format.fprintf ppf "Object_key: %s\n" k
       | Object_key_colon k -> Format.fprintf ppf "Object_key_colon: %s\n" k
-      | Object_row (k,t) -> Format.fprintf ppf "Object_row: %s : %a\n" k pp_t t) s
+      | Object_row (k,t) -> Format.fprintf ppf "Object_row: %s : %a\n" k pp_t t
+      | Array_start -> Format.fprintf ppf "Array_start\n"
+      | Array_element t -> Format.fprintf ppf "Array_element: %a\n" pp_t t) s
 
   let step stack = 
     function 
@@ -225,7 +229,12 @@ module Parser = struct
 
       | None, L_CURLY -> Stack.push Object_start stack; stack
       | Some Object_start, STRING s -> Stack.push (Object_key s) stack; stack
-      | Some Object_start, R_CURLY -> Stack.push (Complete (Object [])) stack; stack
+      | Some Object_start, R_CURLY -> 
+        (match Stack.pop_opt stack with
+          None -> Stack.push (Complete (Object [])) stack
+        | Some Object_key_colon k -> Stack.push (Object_row (k,Object [])) stack
+        | _ -> failwith "dont know ??");
+        stack
       | Some Object_key s, COLON -> Stack.push (Object_key_colon s) stack; stack
       | Some Object_key_colon s, TRUE _ -> Stack.push (Object_row (s,True)) stack; stack
       | Some Object_key_colon s, FALSE _ -> Stack.push (Object_row (s,False)) stack; stack
@@ -248,12 +257,76 @@ module Parser = struct
         in
         let kvs = aux stack in
         let kvs = (k',v')::kvs in
+        let kvs = List.rev kvs in
         (match Stack.pop_opt stack with
           None -> Stack.push (Complete (Object kvs)) stack
         | Some Object_key_colon k -> Stack.push (Object_row (k,Object kvs)) stack
         | _ -> failwith "dont know ??")
         ; stack
-      
+
+      | None, L_BRACE -> Stack.push Array_start stack; stack
+      | Some Array_start, L_BRACE -> 
+        Stack.push Array_start stack;
+        Stack.push Array_start stack; stack
+      | Some Array_start, R_BRACE -> 
+        (match Stack.pop_opt stack with
+          None -> Stack.push (Complete (Array [])) stack
+        | Some e -> 
+          Stack.push e stack;
+          Stack.push (Array_element ((Array []))) stack); 
+          stack
+      | Some Array_start, TRUE _ -> 
+        Stack.push Array_start stack;
+        Stack.push (Array_element True) stack; stack
+      | Some Array_start, FALSE _ -> 
+        Stack.push Array_start stack;
+        Stack.push (Array_element False) stack; stack
+      | Some Array_start, STRING s -> 
+        Stack.push Array_start stack;
+        Stack.push (Array_element (String s)) stack; stack
+      | Some Array_start, NUMBER n -> 
+        Stack.push Array_start stack;
+        Stack.push (Array_element (Number (float_of_string n))) stack; stack
+      | Some Array_start, NULL _ -> 
+        Stack.push Array_start stack;
+        Stack.push (Array_element Null) stack; stack
+
+      | Some Array_element e, COMMA -> Stack.push (Array_element e) stack; stack
+      | Some Array_element e, TRUE _ -> 
+        Stack.push (Array_element e) stack;
+        Stack.push (Array_element True) stack; stack
+      | Some Array_element e, FALSE _ -> 
+        Stack.push (Array_element e) stack;
+        Stack.push (Array_element False) stack; stack
+      | Some Array_element e, STRING s -> 
+        Stack.push (Array_element e) stack;
+        Stack.push (Array_element (String s)) stack; stack
+      | Some Array_element e, NUMBER n -> 
+        Stack.push (Array_element e) stack;
+        Stack.push (Array_element (Number (float_of_string n))) stack; stack
+      | Some Array_element e, NULL _ -> 
+        Stack.push (Array_element e) stack;
+        Stack.push (Array_element Null) stack; stack
+      | Some Array_element e, L_BRACE ->
+        Stack.push (Array_element e) stack;
+        Stack.push (Array_start) stack; stack
+      | Some Array_element e, R_BRACE ->
+        let rec aux s =
+          if Stack.is_empty s then [] else
+          match Stack.pop s with
+            Array_element e -> e::aux s
+          | Array_start -> []
+          | _ as e -> Stack.push e s; []
+        in
+        let es = e::aux stack in
+        let es = List.rev es in
+        (match Stack.pop_opt stack with
+          None -> Stack.push (Complete (Array es)) stack
+        | Some e -> 
+          Stack.push e stack;
+          Stack.push (Array_element ((Array es))) stack)
+        ; stack
+
       | _ -> failwith "not implemented")
 
 end
@@ -281,8 +354,9 @@ module Driver = struct
     Format.printf "%a" Parser.pp_stack p_stack
 end
 
-let json = "{ \"foo\": \"string\", \"bar\": 1, \"baz\": true, \"tutu\": null }" ;;
-let json = "{ \"a\" : { \"b\" : { \"c\" : { \"d\" : \"e\" }}}}" ;;
+(* let json = "{}";; *)
+(* let json = "{ \"foo\": \"string\", \"bar\": 1, \"baz\": true, \"tutu\": null }" ;; *)
+(* let json = "{ \"a\" : { \"b\" : { \"c\" : { \"d\" : {} }}}}" ;; *)
 (* let json = "true";; *)
 (* let json = "false";; *)
 (* let json = "\"foo-bar\"";; *)
@@ -290,6 +364,13 @@ let json = "{ \"a\" : { \"b\" : { \"c\" : { \"d\" : \"e\" }}}}" ;;
 (* let json = "3.142";; *)
 (* let json = "1234";; *)
 (* let json = "{}";; *)
+(* let json = "[]";; *)
+(* let json = "[true, false, null, \"foo\", 123.345]";; *)
+let json = "[[[2, 3], [4, 5]], 1, [[[[[[[[]]]]]]]], null]";;
+
+(* array of objects *)
+(* object value array *)
+
 Driver.drive json
 
 (*
