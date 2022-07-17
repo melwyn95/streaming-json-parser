@@ -1,0 +1,6 @@
+(library
+ (name test)
+ (libraries core base stdio json yojson)
+ (preprocess
+  (pps ppx_inline_test ppx_assert ppx_jane))
+ (inline_tests))

@@ -103,6 +103,15 @@ module PreParser = struct
   | Partial STRING p, CHAR 'f'           -> Single (Partial (STRING (p ^ (String.make 1 'f'))))
   | Partial STRING p, CHAR 'n'           -> Single (Partial (STRING (p ^ (String.make 1 'n'))))
   | Partial STRING p, CHAR q             -> Single (Partial (STRING (p ^ (String.make 1 q))))
+  | Partial STRING p, DIGIT q            -> Single (Partial (STRING (p ^ (String.make 1 q))))
+  | Partial STRING p, COMMA              -> Single (Partial (STRING (p ^ (String.make 1 ','))))
+  | Partial STRING p, L_BRACE            -> Single (Partial (STRING (p ^ (String.make 1 '['))))
+  | Partial STRING p, R_BRACE            -> Single (Partial (STRING (p ^ (String.make 1 ']'))))
+  | Partial STRING p, L_CURLY            -> Single (Partial (STRING (p ^ (String.make 1 '{'))))
+  | Partial STRING p, R_CURLY            -> Single (Partial (STRING (p ^ (String.make 1 '}'))))
+  | Partial STRING p, COLON              -> Single (Partial (STRING (p ^ (String.make 1 ':'))))
+  | Partial STRING p, WHITE_SPACE q      -> Single (Partial (STRING (p ^ (String.make 1 q))))
+
   | Partial NUMBER p, DIGIT q            -> Single (Partial (NUMBER (p ^ (String.make 1 q))))
   | Partial NUMBER p, CHAR '.'           -> Single (Partial (NUMBER (p ^ ".")))
   
@@ -139,39 +148,57 @@ module PreParser = struct
 
   let parse : Lexer.state -> status -> state =
   fun (_, token) p ->
-  match token with
-    L_BRACE -> Single (Complete L_BRACE)
-  | L_CURLY -> Single (Complete L_CURLY)
-  | R_BRACE -> 
+  match token,p with
+    WHITE_SPACE _, _ 
+  | DIGIT _, _
+  | DOUBLE_QUOTE, _ 
+  | CHAR _, _ 
+  | L_BRACE, Partial (STRING _)
+  | R_BRACE, Partial (STRING _)
+  | L_CURLY, Partial (STRING _)
+  | R_CURLY, Partial (STRING _)
+  | COLON, Partial (STRING _)
+  | COMMA, Partial (STRING _) -> merge p token
+  | COLON, _   -> Single (Complete COLON)
+  | L_BRACE, _ -> Single (Complete L_BRACE)
+  | L_CURLY, _ -> Single (Complete L_CURLY)
+  | R_BRACE, _ -> 
     (match p with
       Partial p  -> Double (p, Complete R_BRACE)
     | Complete _ -> Single (Complete R_BRACE))
-  | R_CURLY -> 
+  | R_CURLY, _ -> 
     (match p with
       Partial p  -> Double (p, Complete R_CURLY)
     | Complete _ -> Single (Complete R_CURLY))
-  | COMMA   -> 
+  | COMMA, _   -> 
     (match p with
       Partial p  -> Double (p, Complete COMMA)
     | Complete _ -> Single (Complete COMMA))
-  | COLON   -> Single (Complete COLON)
-  | WHITE_SPACE _ 
-  | DIGIT _
-  | DOUBLE_QUOTE 
-  | CHAR _  -> merge p token
 
 end
 
 module Parser = struct
   open PreParser
+  open Core
+
+  module Generator = Base_quickcheck.Generator
+  
+  type str = string [@quickcheck.generator Generator.string_of Generator.char_alphanum]
+  [@@deriving quickcheck, sexp_of, eq, ord]
+
   type t =
       Null
     | True
     | False
-    | String of string
-    | Number of float
-    | Object of (string * t) list
+    | String of str 
+    | Number of float [@quickcheck.weight 0.0] (* TODO: fix the case of only numbers *)
+    | Object of (str * t) list
     | Array of t list
+    [@@deriving quickcheck, sexp_of, eq, ord]
+
+  module List = Caml.List
+  module String = Caml.String
+  module Stack = Caml.Stack
 
   let rec pp_t ppf t =
     match t with
@@ -181,7 +208,7 @@ module Parser = struct
     | String s -> Format.fprintf ppf "\"%s\"" s
     | Number n -> Format.fprintf ppf "%f" n
     | Object rows -> 
-      let rows = List.map (fun (k,v) -> Format.asprintf "%s : %a" k pp_t v) rows in
+      let rows = List.map (fun (k,v) -> Format.asprintf "\"%s\" : %a" k pp_t v) rows in
       let rows = String.concat ",\n" rows in
       Format.fprintf ppf "{%s}" rows
     | Array es -> 
@@ -218,6 +245,7 @@ module Parser = struct
       WHITE_SPACE _ -> stack
     | token -> 
     (
+      (* Format.printf "%a\n" PreParser.pp token; *)
       let s_top = Stack.pop_opt stack in
       match s_top, token with
         None, TRUE _ -> Stack.push (Complete True) stack; stack
@@ -334,7 +362,7 @@ module Parser = struct
         | Some (Object_key_colon k) -> Stack.push (Object_row (k, Array es)) stack
         | Some e -> 
           Stack.push e stack;
-          Stack.push (Array_element ((Array es))) stack)
+          Stack.push (Array_element (Array es)) stack)
         ; stack
 
       | Some Array_element e, L_CURLY -> 
@@ -343,6 +371,39 @@ module Parser = struct
 
       | _ -> failwith "not implemented")
 
+  let rec of_yo_json (y : Yojson.Basic.t) =
+    match y with
+      `Null -> Null
+    | `Bool true -> True
+    | `Bool false -> False
+    | `String s -> String s
+    | `List t -> Array (List.map of_yo_json t)
+    | `Assoc kvs -> Object (List.map (fun (k,v) -> k, of_yo_json v) kvs)
+    | _ -> failwith "don't know ??"
+
+  let of_string json =
+    let module Buffer = Caml.Buffer in
+    let buf = Buffer.of_seq @@ String.to_seq json in
+    let len = Buffer.length buf in
+    let rec aux len (l,p,p_stack) =
+      (* Format.printf "%a\n" Parser.pp_stack p_stack; *)
+      if len = 0 
+      then (l,p,p_stack)
+      else aux (len - 1) (
+        let l = Lexer.lex buf l in
+        let p, p_stack = 
+          match PreParser.parse l p with 
+            Single (Complete t as s) -> s, step p_stack t
+          | Single (Partial _  as s) -> s, p_stack
+          | Double (p,(Partial _ as s))  -> s, step p_stack p
+          | Double (p,(Complete t as s)) -> s, step (step p_stack p) t
+        in
+        (l,p,p_stack))
+    in
+    let _,_,p_stack = aux len (Lexer.initial_state, PreParser.initial_state, empty ()) in
+    match Stack.pop p_stack with
+      Complete t -> t
+    | _ -> failwith "parse error: ??"
 end
 
 module Driver = struct

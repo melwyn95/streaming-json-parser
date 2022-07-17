@@ -41,3 +41,6 @@ let () = Driver.drive json
 
 let json = "[{} , { \"a\" : 1} , { \"b\" : [1, true] } , { \"c\" : false , \"d\" : null}]"
 let () = Driver.drive json
+
+let json = "\"27]fXyN9,'KzbE5Z4mnt8A\""
+let () = Driver.drive json
