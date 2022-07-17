@@ -104,6 +104,7 @@ module PreParser = struct
   | Partial STRING p, CHAR 'n'           -> Single (Partial (STRING (p ^ (String.make 1 'n'))))
   | Partial STRING p, CHAR q             -> Single (Partial (STRING (p ^ (String.make 1 q))))
   | Partial NUMBER p, DIGIT q            -> Single (Partial (NUMBER (p ^ (String.make 1 q))))
+  | Partial NUMBER p, CHAR '.'           -> Single (Partial (NUMBER (p ^ ".")))
   
   | Partial WHITE_SPACE p, WHITE_SPACE q -> Single (Partial (WHITE_SPACE (p ^ (String.make 1 q))))
   | Partial WHITE_SPACE w, DOUBLE_QUOTE  -> Double (WHITE_SPACE w, Partial (STRING ""))
@@ -172,82 +173,123 @@ module Parser = struct
     | Object of (string * t) list
     | Array of t list
 
-  type state = Complete of t | Partial of (PreParser.token -> state)
-
-  (* Convert this to CPS *)
-  let rec parse_object t =
+  let rec pp_t ppf t =
     match t with
-      STRING s -> Partial (
-        fun t ->
-          match t with
-            COLON -> Partial (
-              fun t ->
-                match parse_token t with
-                  Complete t' -> Partial (
-                    fun t ->
-                      match t with
-                      | COMMA -> Partial (
-                        fun t ->
-                          match parse_object t with
-                            Complete (Object kvs) ->
-                              Complete (Object ((s,t')::kvs))
-                          | Partial p -> Partial p
-                          | _ -> failwith "todo 1" (* TODO: better error messages *)
-                      )
-                      | R_CURLY -> Complete (Object [s,t'])
-                      | _ -> failwith "todo 2" (* TODO: better error messages *)
-                  )
-                | _ -> failwith "todo 3" (* TODO: better error messages *)
-            )
-          | _ -> failwith "invalid object 1" (* TODO: better error messages *)
-      )
-    | _ -> failwith "invalid object 2" (* TODO: better error messages *)
+      Null -> Format.fprintf ppf "null"
+    | True -> Format.fprintf ppf "true"
+    | False -> Format.fprintf ppf "false"
+    | String s -> Format.fprintf ppf "%s" s
+    | Number n -> Format.fprintf ppf "%f" n
+    | Object rows -> 
+      let rows = List.map (fun (k,v) -> Format.asprintf "%s : %a" k pp_t v) rows in
+      let rows = String.concat ",\n" rows in
+      Format.fprintf ppf "{%s}" rows
+    | Array es -> 
+      let es = String.concat "," (List.map (fun e -> Format.asprintf "%a" pp_t e) es) in
+      Format.fprintf ppf "[%s]" es 
 
-  and parse_token p =
-    match p with
-      TRUE "true"   -> Complete True
-    | FALSE "false" -> Complete False
-    | NULL "null"   -> Complete Null
-    | STRING s -> Complete (String s)
-    | NUMBER n -> Complete (Number (float_of_string n))
-    | L_CURLY -> Partial parse_object
-    | L_BRACE -> failwith "not implemented"
-    | _ -> failwith "invalid json"
 
-  let step f t =
-    match t with
-      PreParser.WHITE_SPACE _ -> f
-    | _ -> (
-      match f t with
-        Complete t -> (fun _ -> Complete t)
-      | Partial f -> f
-    )
+  type state = 
+    Complete of t 
+  | Object_start
+  | Object_key of string
+  | Object_key_colon of string
+  | Object_row of string * t 
+
+  type stack = state Stack.t
+
+  let empty : stack = Stack.create ()
+
+  let pp_stack ppf s = 
+    Stack.iter (
+      function 
+        Complete t -> Format.fprintf ppf "Complete: %a\n" pp_t t
+      | Object_start -> Format.fprintf ppf "Object_start\n" 
+      | Object_key k -> Format.fprintf ppf "Object_key: %s\n" k
+      | Object_key_colon k -> Format.fprintf ppf "Object_key_colon: %s\n" k
+      | Object_row (k,t) -> Format.fprintf ppf "Object_row: %s : %a\n" k pp_t t) s
+
+  let step stack = 
+    function 
+      WHITE_SPACE _ -> stack
+    | token -> 
+    (
+      let s_top = Stack.pop_opt stack in
+      match s_top, token with
+        None, TRUE _ -> Stack.push (Complete True) stack; stack
+      | None, FALSE _ -> Stack.push (Complete False) stack; stack
+      | None, STRING s -> Stack.push (Complete (String s)) stack; stack
+      | None, NULL _ -> Stack.push (Complete (Null)) stack; stack
+      (* TODO: only number doesn't work yet *)
+      | None, NUMBER s -> Stack.push (Complete (Number (float_of_string s))) stack; stack
+
+      | None, L_CURLY -> Stack.push Object_start stack; stack
+      | Some Object_start, STRING s -> Stack.push (Object_key s) stack; stack
+      | Some Object_start, R_CURLY -> Stack.push (Complete (Object [])) stack; stack
+      | Some Object_key s, COLON -> Stack.push (Object_key_colon s) stack; stack
+      | Some Object_key_colon s, TRUE _ -> Stack.push (Object_row (s,True)) stack; stack
+      | Some Object_key_colon s, FALSE _ -> Stack.push (Object_row (s,False)) stack; stack
+      | Some Object_key_colon s, STRING s' -> Stack.push (Object_row (s,String s')) stack; stack
+      | Some Object_key_colon s, NULL _ -> Stack.push (Object_row (s,Null)) stack; stack
+      | Some Object_key_colon s, NUMBER n -> Stack.push (Object_row (s,Number (float_of_string n))) stack; stack
+      | Some Object_key_colon s, L_CURLY -> 
+        Stack.push (Object_key_colon s) stack;
+        Stack.push Object_start stack; stack
+      | Some (Object_row _ as r), COMMA -> Stack.push r stack; stack
+      | Some (Object_row _ as r), STRING s -> 
+        Stack.push r stack;
+        Stack.push (Object_key s) stack; stack
+      | Some (Object_row (k',v')), R_CURLY ->
+        let rec aux s =
+          if Stack.is_empty s then [] else
+          match Stack.pop s with
+            Object_row (k,v) -> (k,v)::aux s
+          | _ as e -> Stack.push e s; []
+        in
+        let kvs = aux stack in
+        let kvs = (k',v')::kvs in
+        (match Stack.pop_opt stack with
+          None -> Stack.push (Complete (Object kvs)) stack
+        | Some Object_key_colon k -> Stack.push (Object_row (k,Object kvs)) stack
+        | _ -> failwith "dont know ??")
+        ; stack
+      
+      | _ -> failwith "not implemented")
+
 end
 
 module Driver = struct
   let drive json =
     let buf = Buffer.of_seq @@ String.to_seq json in
     let len = Buffer.length buf in
-    let rec aux len (l,p,parse_token,xs) =
+    let rec aux len (l,p,p_stack) =
+      (* Format.printf "%a\n" Parser.pp_stack p_stack; *)
       if len = 0 
-      then (l,p,List.rev xs)
+      then (l,p,p_stack)
       else aux (len - 1) (
         let l = Lexer.lex buf l in
-        let p, parse_token, xs = 
+        let p, p_stack = 
           match PreParser.parse l p with 
-            Single (Complete t as s) -> s, Parser.step parse_token t, t::xs
-          | Single (Partial p  as s) -> s, parse_token, xs
-          | Double (p,(Partial _ as s))  -> s, Parser.step parse_token p, p::xs
-          | Double (p,(Complete t as s)) -> s, Parser.step (Parser.step parse_token p) t, t::p::xs
+            Single (Complete t as s) -> s, Parser.step p_stack t
+          | Single (Partial p  as s) -> s, p_stack
+          | Double (p,(Partial _ as s))  -> s, Parser.step p_stack p
+          | Double (p,(Complete t as s)) -> s, Parser.step (Parser.step p_stack p) t
         in
-        (l,p,parse_token,xs))
+        (l,p,p_stack))
     in
-    
-    let _,p,tokens = aux len (Lexer.initial_state, PreParser.initial_state, Parser.parse_token, []) in
-    List.iter (fun t -> Format.printf "%a" PreParser.pp t) tokens
+    let _,_,p_stack = aux len (Lexer.initial_state, PreParser.initial_state, Parser.empty) in
+    Format.printf "%a" Parser.pp_stack p_stack
 end
 
 let json = "{ \"foo\": \"string\", \"bar\": 1, \"baz\": true, \"tutu\": null }" ;;
+let json = "{ \"a\" : { \"b\" : { \"c\" : { \"d\" : \"e\" }}}}" ;;
+(* let json = "true";; *)
+(* let json = "false";; *)
+(* let json = "\"foo-bar\"";; *)
+(* let json = "null";; *)
+(* let json = "3.142";; *)
+(* let json = "1234";; *)
+(* let json = "{}";; *)
 Driver.drive json
 
 (*
