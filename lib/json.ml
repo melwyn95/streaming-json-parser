@@ -178,7 +178,7 @@ module Parser = struct
       Null -> Format.fprintf ppf "null"
     | True -> Format.fprintf ppf "true"
     | False -> Format.fprintf ppf "false"
-    | String s -> Format.fprintf ppf "%s" s
+    | String s -> Format.fprintf ppf "\"%s\"" s
     | Number n -> Format.fprintf ppf "%f" n
     | Object rows -> 
       let rows = List.map (fun (k,v) -> Format.asprintf "%s : %a" k pp_t v) rows in
@@ -200,7 +200,7 @@ module Parser = struct
 
   type stack = state Stack.t
 
-  let empty : stack = Stack.create ()
+  let empty : unit -> stack = Stack.create
 
   let pp_stack ppf s = 
     Stack.iter (
@@ -233,7 +233,7 @@ module Parser = struct
         (match Stack.pop_opt stack with
           None -> Stack.push (Complete (Object [])) stack
         | Some Object_key_colon k -> Stack.push (Object_row (k,Object [])) stack
-        | _ -> failwith "dont know ??");
+        | Some e -> Stack.push e stack; Stack.push (Array_element (Object [])) stack);
         stack
       | Some Object_key s, COLON -> Stack.push (Object_key_colon s) stack; stack
       | Some Object_key_colon s, TRUE _ -> Stack.push (Object_row (s,True)) stack; stack
@@ -261,8 +261,12 @@ module Parser = struct
         (match Stack.pop_opt stack with
           None -> Stack.push (Complete (Object kvs)) stack
         | Some Object_key_colon k -> Stack.push (Object_row (k,Object kvs)) stack
-        | _ -> failwith "dont know ??")
+        | Some e -> Stack.push e stack; Stack.push (Array_element (Object kvs)) stack)
         ; stack
+
+      | Some Object_key_colon s, L_BRACE ->
+        Stack.push (Object_key_colon s) stack;
+        Stack.push Array_start stack; stack
 
       | None, L_BRACE -> Stack.push Array_start stack; stack
       | Some Array_start, L_BRACE -> 
@@ -271,6 +275,7 @@ module Parser = struct
       | Some Array_start, R_BRACE -> 
         (match Stack.pop_opt stack with
           None -> Stack.push (Complete (Array [])) stack
+        | Some (Object_key_colon k) -> Stack.push (Object_row (k, Array [])) stack
         | Some e -> 
           Stack.push e stack;
           Stack.push (Array_element ((Array []))) stack); 
@@ -290,6 +295,10 @@ module Parser = struct
       | Some Array_start, NULL _ -> 
         Stack.push Array_start stack;
         Stack.push (Array_element Null) stack; stack
+
+      | Some Array_start, L_CURLY ->
+        Stack.push Array_start stack;
+        Stack.push Object_start stack; stack
 
       | Some Array_element e, COMMA -> Stack.push (Array_element e) stack; stack
       | Some Array_element e, TRUE _ -> 
@@ -322,10 +331,15 @@ module Parser = struct
         let es = List.rev es in
         (match Stack.pop_opt stack with
           None -> Stack.push (Complete (Array es)) stack
+        | Some (Object_key_colon k) -> Stack.push (Object_row (k, Array es)) stack
         | Some e -> 
           Stack.push e stack;
           Stack.push (Array_element ((Array es))) stack)
         ; stack
+
+      | Some Array_element e, L_CURLY -> 
+        Stack.push (Array_element e) stack;
+        Stack.push Object_start stack; stack
 
       | _ -> failwith "not implemented")
 
@@ -344,34 +358,15 @@ module Driver = struct
         let p, p_stack = 
           match PreParser.parse l p with 
             Single (Complete t as s) -> s, Parser.step p_stack t
-          | Single (Partial p  as s) -> s, p_stack
+          | Single (Partial _  as s) -> s, p_stack
           | Double (p,(Partial _ as s))  -> s, Parser.step p_stack p
           | Double (p,(Complete t as s)) -> s, Parser.step (Parser.step p_stack p) t
         in
         (l,p,p_stack))
     in
-    let _,_,p_stack = aux len (Lexer.initial_state, PreParser.initial_state, Parser.empty) in
-    Format.printf "%a" Parser.pp_stack p_stack
+    let _,_,p_stack = aux len (Lexer.initial_state, PreParser.initial_state, Parser.empty ()) in
+    Format.printf "- %a" Parser.pp_stack p_stack
 end
-
-(* let json = "{}";; *)
-(* let json = "{ \"foo\": \"string\", \"bar\": 1, \"baz\": true, \"tutu\": null }" ;; *)
-(* let json = "{ \"a\" : { \"b\" : { \"c\" : { \"d\" : {} }}}}" ;; *)
-(* let json = "true";; *)
-(* let json = "false";; *)
-(* let json = "\"foo-bar\"";; *)
-(* let json = "null";; *)
-(* let json = "3.142";; *)
-(* let json = "1234";; *)
-(* let json = "{}";; *)
-(* let json = "[]";; *)
-(* let json = "[true, false, null, \"foo\", 123.345]";; *)
-let json = "[[[2, 3], [4, 5]], 1, [[[[[[[[]]]]]]]], null]";;
-
-(* array of objects *)
-(* object value array *)
-
-Driver.drive json
 
 (*
 Idea: Make a streaming json parser, that can parse arbitrarily large json files.
