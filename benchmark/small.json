@@ -1,0 +1,78 @@
+[
+  {
+    "_id": "6304e3cc7192a3c7e1b39029",
+    "guid": "c10ef41e-04c2-485c-a5bf-0ee4fdf7afb4",
+    "isActive": true,
+    "balance": "$2,911.55",
+    "picture": "http://placehold.it/32x32",
+    "eyeColor": "green",
+    "name": "Wilma Dunlap",
+    "gender": "female",
+    "company": "KRAG",
+    "email": "wilmadunlap@krag.com",
+    "phone": "+1 (964) 596-3766",
+    "address": "139 Cozine Avenue, Linganore, Iowa, 5870",
+    "about": "Eiusmod in sint aute ipsum eiusmod. Aute consectetur eiusmod deserunt laborum irure commodo enim excepteur commodo eu culpa id. Sunt ipsum et excepteur ex. Ex proident commodo quis esse velit magna proident. Duis magna nisi enim commodo id amet ad ipsum consequat. Quis ullamco ea tempor enim dolore veniam. Id dolore laborum duis irure veniam cillum occaecat do mollit et labore anim culpa laborum.\r\n",
+    "registered": "2019-04-07T03:13:01 -06:-30",
+    "tags": [
+      "culpa",
+      "ad",
+      "enim",
+      "id",
+      "do",
+      "duis",
+      "enim"
+    ],
+    "friends": [
+      {
+        "name": "Raquel Holloway"
+      },
+      {
+        "name": "Barr Rowe"
+      },
+      {
+        "name": "Gladys Whitley"
+      }
+    ],
+    "greeting": "Hello, Wilma Dunlap! You have 6 unread messages.",
+    "favoriteFruit": "apple"
+  },
+  {
+    "_id": "6304e3cc49b4e9580d0245b7",
+    "guid": "f7f63691-4e6d-4a6a-ab34-4aaaa9a8eaa3",
+    "isActive": true,
+    "balance": "$1,162.03",
+    "picture": "http://placehold.it/32x32",
+    "eyeColor": "brown",
+    "name": "Armstrong Clarke",
+    "gender": "male",
+    "company": "COGNICODE",
+    "email": "armstrongclarke@cognicode.com",
+    "phone": "+1 (865) 592-2136",
+    "address": "601 Hancock Street, Rosewood, Montana, 4258",
+    "about": "Lorem id ullamco est irure officia magna eu dolore labore velit eiusmod nisi sint sint. Qui ad ex dolore sit tempor ad duis elit et nulla. Consectetur eu adipisicing duis id cupidatat occaecat. Ut occaecat reprehenderit ad aute id duis sunt in exercitation duis incididunt. Officia in velit ut culpa aliquip consequat. Minim officia aliquip officia incididunt commodo magna magna velit duis pariatur non.\r\n",
+    "registered": "2017-03-13T11:53:41 -06:-30",
+    "tags": [
+      "non",
+      "voluptate",
+      "voluptate",
+      "elit",
+      "do",
+      "in",
+      "aliquip"
+    ],
+    "friends": [
+      {
+        "name": "Ruthie Hayes"
+      },
+      {
+        "name": "Darlene Harmon"
+      },
+      {
+        "name": "Neva Hammond"
+      }
+    ],
+    "greeting": "Hello, Armstrong Clarke! You have 10 unread messages.",
+    "favoriteFruit": "strawberry"
+  }
+]

@@ -1,0 +1,4 @@
+(executable
+ (public_name bench)
+ (name bench)
+ (libraries core core_bench yojson json))

@@ -5,11 +5,12 @@ authors:      "Melwyn Saldanha <melwyn95@gmail.com>"
 synopsis:     "POC: streaming json parser"
 description:  "POC: streaming json parser"
 depends: [
-  "ocaml"      {>= "4.14.0"}
+  "ocaml"
   "dune"
   "ocaml-lsp-server"
   "ocamlformat-rpc"
   "yojson"
   "core"
   "ppx_deriving"
+  "core_bench"
 ]

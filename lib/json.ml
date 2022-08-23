@@ -208,8 +208,8 @@ module Parser = struct
     | String s -> Format.fprintf ppf "\"%s\"" s
     | Number n -> Format.fprintf ppf "%f" n
     | Object rows -> 
-      let rows = List.map (fun (k,v) -> Format.asprintf "\"%s\" : %a" k pp_t v) rows in
-      let rows = String.concat ",\n" rows in
+      let rows = List.map (fun (k,v) -> Format.asprintf "\"%s\":%a" k pp_t v) rows in
+      let rows = String.concat "," rows in
       Format.fprintf ppf "{%s}" rows
     | Array es -> 
       let es = String.concat "," (List.map (fun e -> Format.asprintf "%a" pp_t e) es) in
@@ -406,29 +406,6 @@ module Parser = struct
     | _ -> failwith "parse error: ??"
 end
 
-(* module Driver = struct
-  let drive json =
-    let buf = Buffer.of_seq @@ String.to_seq json in
-    let len = Buffer.length buf in
-    let rec aux len (l,p,p_stack) =
-      (* Format.printf "%a\n" Parser.pp_stack p_stack; *)
-      if len = 0 
-      then (l,p,p_stack)
-      else aux (len - 1) (
-        let l = Lexer.lex buf l in
-        let p, p_stack = 
-          match PreParser.parse l p with 
-            Single (Complete t as s) -> s, Parser.step p_stack t
-          | Single (Partial _  as s) -> s, p_stack
-          | Double (p,(Partial _ as s))  -> s, Parser.step p_stack p
-          | Double (p,(Complete t as s)) -> s, Parser.step (Parser.step p_stack p) t
-        in
-        (l,p,p_stack))
-    in
-    let _,_,p_stack = aux len (Lexer.initial_state, PreParser.initial_state, Parser.empty ()) in
-    Format.printf "- %a" Parser.pp_stack p_stack
-end *)
-
 let rec parse'' buf len (l, pp, p) =
   if len = 0 
   then (l, pp, p)
@@ -443,7 +420,6 @@ let rec parse'' buf len (l, pp, p) =
     in
     (l , pp, p))
 
-
 let buf_len = 1024
 
 let parse' (refill : Buffer.t -> int) =
@@ -455,8 +431,8 @@ let parse' (refill : Buffer.t -> int) =
     if len = 0 then
       if Stack.length p = 1 then Stack.pop p else failwith "parse error: invalid json." 
     else
-      let l, pp, p = parse'' buf len (l, pp, p) in
-      aux (l, pp, p)
+      let (_,l), pp, p = parse'' buf len (l, pp, p) in
+      aux ((0,l), pp, p)
   in
   let state = aux init in
   match state with
@@ -467,6 +443,7 @@ let parse_string s =
   let len = String.length s in
   let read = ref 0 in
   let refill buf =
+    (* Format.printf "- %d / %d \n" !read len; *)
     let len = min (len - !read) buf_len in
     if len <= 0 then 0
     else 
