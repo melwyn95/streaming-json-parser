@@ -406,7 +406,7 @@ module Parser = struct
     | _ -> failwith "parse error: ??"
 end
 
-module Driver = struct
+(* module Driver = struct
   let drive json =
     let buf = Buffer.of_seq @@ String.to_seq json in
     let len = Buffer.length buf in
@@ -427,7 +427,54 @@ module Driver = struct
     in
     let _,_,p_stack = aux len (Lexer.initial_state, PreParser.initial_state, Parser.empty ()) in
     Format.printf "- %a" Parser.pp_stack p_stack
-end
+end *)
+
+let rec parse'' buf len (l, pp, p) =
+  if len = 0 
+  then (l, pp, p)
+  else parse'' buf (len - 1) (
+    let l = Lexer.lex buf l in
+    let pp, p = 
+      match PreParser.parse l pp with 
+        Single (Complete t as s) -> s, Parser.step p t
+      | Single (Partial _  as s) -> s, p
+      | Double (tok,(Partial _ as s))  -> s, Parser.step p tok
+      | Double (tok,(Complete t as s)) -> s, Parser.step (Parser.step p tok) t
+    in
+    (l , pp, p))
+
+
+let buf_len = 1024
+
+let parse' (refill : Buffer.t -> int) =
+  let buf = Buffer.create buf_len in
+  let init = Lexer.initial_state, PreParser.initial_state, Parser.empty () in
+  let rec aux (l, pp, p) =
+    let () = Buffer.clear buf in
+    let len = refill buf in
+    if len = 0 then
+      if Stack.length p = 1 then Stack.pop p else failwith "parse error: invalid json." 
+    else
+      let l, pp, p = parse'' buf len (l, pp, p) in
+      aux (l, pp, p)
+  in
+  let state = aux init in
+  match state with
+   Parser.Complete t -> t
+  | _ -> failwith "parse error: incomplete json steam."
+
+let parse_string s =
+  let len = String.length s in
+  let read = ref 0 in
+  let refill buf =
+    let len = min (len - !read) buf_len in
+    if len <= 0 then 0
+    else 
+      let () = Buffer.add_string buf (String.sub s !read len) in
+      let () = read := !read + len in
+      len
+  in 
+  parse' refill
 
 (*
 Idea: Make a streaming json parser, that can parse arbitrarily large json files.
